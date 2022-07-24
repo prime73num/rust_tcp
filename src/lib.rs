@@ -1,21 +1,22 @@
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap, hash_map};
 use std::error::Error;
-use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 use std::{thread, io};
 
 
 use tun_tap;
 use smoltcp::wire::{self, PrettyPrinter};
+use smoltcp::wire::Ipv4Address;
 
 
 
 
 
-
+type Port = u16;
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 struct Quad {
-    src: (Ipv4Addr, u16),
-    dst: (Ipv4Addr, u16),
+    src: (Ipv4Address, Port),
+    dst: (Ipv4Address, Port),
 }
 
 struct Connection {
@@ -23,6 +24,8 @@ struct Connection {
 }
 
 struct ConnectionPool_inner {
+    connection: HashMap<Quad, Arc<Mutex<Connection>>>,
+    listener: HashMap<Port, Arc<Mutex<Vec<Quad>>>>
 }
 
 impl Default for ConnectionPool_inner {
@@ -33,19 +36,30 @@ impl Default for ConnectionPool_inner {
 
 impl ConnectionPool_inner {
     fn new() -> Self {
-        Self {}
+        Self {
+            connection: HashMap::default(),
+            listener: HashMap::default()
+        }
     }
-    fn add()  {
-        unimplemented!()
+    fn add_connection(&mut self, quad:Quad, cn:Connection) -> Arc<Mutex<Connection>>{
+        let cn = Arc::new(Mutex::new(cn));
+        self.connection.insert(quad, cn.clone());
+        cn
     }
     fn get() -> io::Result<Connection> {
         unimplemented!()
     }
-    fn remove()  {
-        unimplemented!()
+    fn remove(&mut self, quad:Quad) -> Option<Arc<Mutex<Connection>>> {
+        self.connection.remove(&quad)
     }
-    fn bind(port: u16) {
-        unimplemented!()
+    fn bind(&mut self, port: Port) -> Option<Arc<Mutex<Vec<Quad>>>> {
+        if self.listener.contains_key(&port) {
+            None
+        } else {
+            let listener_queue: Arc<Mutex<Vec<Quad>>> = Arc::default();
+            self.listener.insert(port, listener_queue.clone());
+            Some(listener_queue)
+        }
     }
 }
 
@@ -69,6 +83,16 @@ fn packet_loop(nic: Arc<tun_tap::Iface>, connection_pool: ConnectionPool) -> io:
             );
         let ipv4header = wire::Ipv4Packet::new_checked(&buf[..nbytes])?;
         let tcpheader = wire::TcpPacket::new_checked(ipv4header.payload())?;
+        let q = Quad{
+            src: (ipv4header.src_addr(), tcpheader.src_port()),
+            dst: (ipv4header.dst_addr(), tcpheader.dst_port())
+        };
+        let mut cnp = connection_pool.lock().unwrap();
+        let cn = &mut *cnp;
+        match cn.connection.entry(q) {
+            hash_map::Entry::Occupied(c) => {},
+            hash_map::Entry::Vacant(e) => {}
+        }
         Ok(())
     };
     loop {
@@ -101,7 +125,7 @@ impl Interface {
 }
 
 struct TcpListener {
-    port: u16,
+    port: Port,
     con_pool: ConnectionPool
 }
 
