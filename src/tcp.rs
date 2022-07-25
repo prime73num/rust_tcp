@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+use smoltcp::wire::{PrettyPrinter, self};
 use std::collections::{BTreeMap, VecDeque};
 use std::{io, time};
 
@@ -198,10 +199,10 @@ impl Connection {
         self.tcp.acknowledgment_number = self.recv.nxt;
 
         // TODO: return +1 for SYN/FIN
-        println!(
-            "write(ack: {}, seq: {}, limit: {}) syn {:?} fin {:?}",
-            self.recv.nxt - self.recv.irs, seq, limit, self.tcp.syn, self.tcp.fin,
-            );
+        // println!(
+            // "write(ack: {}, seq: {}, limit: {}) syn {:?} fin {:?}",
+            // self.recv.nxt - self.recv.irs, seq, limit, self.tcp.syn, self.tcp.fin,
+            // );
 
         let mut offset = seq.wrapping_sub(self.send.una) as usize;
         // we need to special-case the two "virtual" bytes SYN and FIN
@@ -287,6 +288,10 @@ impl Connection {
         }
         self.timers.send_times.insert(seq, time::Instant::now());
 
+        println!(
+            "{}",
+            PrettyPrinter::<wire::Ipv4Packet<&[u8]>>::new("", &&buf[..payload_ends_at])
+            );
         nic.send(&buf[..payload_ends_at])?;
         Ok(payload_bytes)
     }

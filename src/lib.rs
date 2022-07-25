@@ -79,6 +79,22 @@ pub struct Interface {
 fn packet_loop( mut nic:tun_tap::Iface, connection_pool: ConnectionPool) -> io::Result<()>{
     let mut buf = [0u8; 1504];
     let mut try_recv = move || -> Result<(), Box<dyn Error>> {
+        use std::os::unix::io::AsRawFd;
+        let mut pfd = [nix::poll::PollFd::new(
+            nic.as_raw_fd(),
+            nix::poll::EventFlags::POLLIN,
+            )];
+        let n = nix::poll::poll(&mut pfd[..], 10).map_err(|e| e.as_errno().unwrap())?;
+        assert_ne!(n, -1);
+        if n == 0 {
+            let mut cmg = connection_pool.connection.lock().unwrap();
+            for connection in cmg.values_mut() {
+                // XXX: don't die on errors?
+                connection.0.lock().unwrap().on_tick(&mut nic)?;
+            }
+            return Err(Box::new(io::Error::new(io::ErrorKind::AddrInUse, "n is not 1",)));
+        }
+        assert_eq!(n, 1);
         let nbytes = nic.recv(&mut buf[..])?;
         println!(
             "{}",
@@ -115,7 +131,7 @@ fn packet_loop( mut nic:tun_tap::Iface, connection_pool: ConnectionPool) -> io::
     };
     loop {
         if let Err(e) = try_recv() {
-            println!("Skip because of {}", &e);
+            // println!("Skip because of {}", &e);
         }
     }
     Ok(())
@@ -152,7 +168,6 @@ pub struct TcpListener {
 impl TcpListener {
     pub fn accept(&mut self) -> io::Result<TcpStream> {
         loop {
-            println!("test");
             let mut listener = self.con_pool.listener.lock().unwrap();
             if let Some(quad) = listener.get_mut(&self.port).unwrap().pop_front() {
                 return Ok(TcpStream{
